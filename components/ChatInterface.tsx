@@ -4,12 +4,20 @@ import { Doc, Id } from "@/convex/_generated/dataModel";
 import React, { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import { ArrowRight } from "lucide-react";
-import { ChatRequestBody } from "@/lib/types";
+import { ChatRequestBody, StreamMessageType } from "@/lib/types";
+import { createSSEParser } from "@/lib/createSSEParser";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 
 interface ChatInterfaceProps {
   chatId: Id<"chats">;
   initialMessages: Doc<"messages">[];
 }
+
+const formatToolOutput = (output: unknown): string => {
+  if (typeof output === "string") return output;
+  return JSON.stringify(output, null, 2);
+};
 
 function ChatInterface({ chatId, initialMessages }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Doc<"messages">[]>(initialMessages);
@@ -26,6 +34,43 @@ function ChatInterface({ chatId, initialMessages }: ChatInterfaceProps) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamedResponse]);
+
+  const formatTerminalOutput = (
+    tool: string,
+    input: unknown,
+    output: unknown
+  ) => {
+    const terminalHtml = `<div class="bg-[#1e1e1e] text-white font-mono p-2 rounded-md my-2 overflow-x-auto whitespace-normal max-w-[600px]">
+      <div class="flex items-center gap-1.5 border-b border-gray-700 pb-1">
+        <span class="text-red-500">●</span>
+        <span class="text-yellow-500">●</span>
+        <span class="text-green-500">●</span>
+        <span class="text-gray-400 ml-1 text-sm">~/${tool}</span>
+      </div>
+      <div class="text-gray-400 mt-1">$ Input</div>
+      <pre class="text-yellow-400 mt-0.5 whitespace-pre-wrap overflow-x-auto">${formatToolOutput(input)}</pre>
+      <div class="text-gray-400 mt-2">$ Output</div>
+      <pre class="text-green-400 mt-0.5 whitespace-pre-wrap overflow-x-auto">${formatToolOutput(output)}</pre>
+    </div>`;
+
+    return `---START---\n${terminalHtml}\n---END---`;
+  };
+
+  const processStream = async (
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    onChunk: (chunk: string) => Promise<void>
+  ) => {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        await onChunk(new TextDecoder().decode(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,13 +119,111 @@ function ChatInterface({ chatId, initialMessages }: ChatInterfaceProps) {
       if (!response.body) throw new Error("No Response body available");
 
       //Handle Stream
+      //Create SSE parser and stream reader
+      const parser = createSSEParser();
+      const reader = response.body.getReader();
+
+      //Process the stream chunks
+
+      await processStream(reader, async (chunk) => {
+        //Parse SSE messages from the chunk
+        const messages = parser.parse(chunk);
+
+        //handle each message based on its type
+
+        for (const message of messages) {
+          switch (message.type) {
+            case StreamMessageType.Token:
+              //Handle Streaming tokens (normal text response)
+              if ("token" in message) {
+                fullResponse += message.token;
+                setStreamedResponse(fullResponse);
+              }
+              break;
+
+            case StreamMessageType.ToolStart:
+              //Handle Start of tool execution (e.g. API calls, file operations)
+              if ("tool" in message) {
+                setCurrentTool({
+                  name: message.tool,
+                  input: message.input,
+                });
+
+                fullResponse += formatTerminalOutput(
+                  message.tool,
+                  message.input,
+                  "Processing..."
+                );
+                setStreamedResponse(fullResponse);
+              }
+              break;
+
+            case StreamMessageType.ToolEnd:
+              //Handle Completion of Tool Execution
+              if ("tool" in message && currentTool) {
+                //replace the "processing..." message with actual output
+                const lastTerminalIndex = fullResponse.lastIndexOf(
+                  '<div class="bg-[#1e1e1e]>'
+                );
+                if (lastTerminalIndex !== -1) {
+                  fullResponse =
+                    fullResponse.substring(0, lastTerminalIndex) +
+                    formatTerminalOutput(
+                      message.tool,
+                      currentTool.input,
+                      message.output
+                    );
+                  setStreamedResponse(fullResponse);
+                }
+                setCurrentTool(null);
+              }
+              break;
+
+            case StreamMessageType.Error:
+              //Handle Error messages from the stream
+              if ("error" in message) {
+                throw new Error(message.error);
+              }
+              break;
+
+            case StreamMessageType.Done:
+              const assistantMessage: Doc<"messages"> = {
+                _id: `temp_assistant_${Date.now()}`,
+                chatId,
+                content: fullResponse,
+                role: "assistant",
+                createdAt: Date.now(),
+              } as Doc<"messages">;
+
+              //Save the complete message to the DB
+              const convex = getConvexClient();
+              await convex.mutation(api.messages.store, {
+                chatId,
+                content: fullResponse,
+                role: "assistant",
+              });
+
+              setMessages((prev) => [...prev, assistantMessage]);
+              setStreamedResponse("");
+              return;
+          }
+        }
+      });
     } catch (error) {
       console.error("Error during send message : ", error);
       setMessages((prev) =>
         prev.filter((msg) => msg._id !== optimisticUserMessage._id)
       );
 
-      setStreamedResponse("error");
+      setStreamedResponse(
+        formatTerminalOutput(
+          "error",
+          "Failed to Process message",
+          error instanceof Error ? error.message : "Unknown error"
+        )
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
