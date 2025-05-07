@@ -53,7 +53,7 @@ function Sidebar() {
       >
         <div className="p-4 border-b border-gray-200/50">
           <Button
-            className="w-full bg-white hover:bg-gray-50 text-gray-700 border border-gray-200/50 shadow-sm hover:shadow transition-all duration-200"
+            className="w-full bg-white cursor-pointer hover:bg-gray-50 text-gray-700 border border-gray-200/50 shadow-sm hover:shadow transition-all duration-200"
             onClick={handleNewChat}
           >
             <PlusIcon />
