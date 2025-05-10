@@ -10,6 +10,7 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { ArrowRight } from "lucide-react";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface ChatInterfaceProps {
   chatId: Id<"chats">;
@@ -30,8 +31,20 @@ export default function ChatInterface({
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "end",
+        });
+      }
+    }, 100);
+  };
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    console.log("SCROLL TRIGERRED");
+    scrollToBottom();
   }, [messages, streamedResponse]);
 
   const formatToolOutput = (output: unknown): string => {
@@ -60,11 +73,6 @@ export default function ChatInterface({
     return `---START---\n${terminalHtml}\n---END---`;
   };
 
-  /**
-   * Processes a ReadableStream from the SSE response.
-   * This function continuously reads chunks of data from the stream until it's done.
-   * Each chunk is decoded from Uint8Array to string and passed to the callback.
-   */
   const processStream = async (
     reader: ReadableStreamDefaultReader<Uint8Array>,
     onChunk: (chunk: string) => Promise<void>
@@ -74,6 +82,7 @@ export default function ChatInterface({
         const { done, value } = await reader.read();
         if (done) break;
         await onChunk(new TextDecoder().decode(value));
+        scrollToBottom();
       }
     } finally {
       reader.releaseLock();
@@ -81,23 +90,17 @@ export default function ChatInterface({
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    console.log("handleSubmit triggered");
     e.preventDefault();
     const trimmedInput = input.trim();
-    console.log("Trimmed input:", trimmedInput);
     if (!trimmedInput || isLoading) {
-      console.log("Input is empty or loading is true, exiting");
       return;
     }
 
-    // Reset UI state for new message
     setInput("");
     setStreamedResponse("");
     setCurrentTool(null);
     setIsLoading(true);
-    console.log("UI state reset");
 
-    // Add user's message immediately for better UX
     const optimisticUserMessage: Doc<"messages"> = {
       _id: `temp_${Date.now()}`,
       chatId,
@@ -105,17 +108,12 @@ export default function ChatInterface({
       role: "user",
       createdAt: Date.now(),
     } as Doc<"messages">;
-    console.log("Optimistic user message created:", optimisticUserMessage);
 
     setMessages((prev) => [...prev, optimisticUserMessage]);
-    console.log("User message added to state");
 
-    // Track complete response for saving to database
     let fullResponse = "";
-    console.log("Initialized fullResponse");
 
     try {
-      // Prepare chat history and new message for API
       const requestBody: ChatRequestBody = {
         messages: messages.map((msg) => ({
           role: msg.role,
@@ -124,47 +122,33 @@ export default function ChatInterface({
         newMessage: trimmedInput,
         chatId,
       };
-      console.log("Request body prepared:", requestBody);
 
-      // Initialize SSE connection
       const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
-      console.log("SSE connection initialized, response:", response);
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Response not OK:", errorText);
         throw new Error(errorText);
       }
       if (!response.body) {
-        console.error("No response body available");
         throw new Error("No response body available");
       }
 
-      // Create SSE parser and stream reader
       const parser = createSSEParser();
       const reader = response.body.getReader();
-      console.log("SSE parser and reader created");
 
-      // Process the stream chunks
       await processStream(reader, async (chunk) => {
-        console.log("Processing stream chunk:", chunk);
-        // Parse SSE messages from the chunk
         const messages = parser.parse(chunk);
-        console.log("Parsed messages:", messages);
 
-        // Handle each message based on its type
         for (const message of messages) {
-          console.log("Handling message:", message);
           switch (message.type) {
             case StreamMessageType.Token:
               if ("token" in message) {
                 fullResponse += message.token;
                 setStreamedResponse(fullResponse);
-                console.log("Token added to fullResponse:", fullResponse);
               }
               break;
 
@@ -174,7 +158,6 @@ export default function ChatInterface({
                   name: message.tool,
                   input: message.input,
                 });
-                console.log("Tool started:", message.tool);
                 fullResponse += formatTerminalOutput(
                   message.tool,
                   message.input,
@@ -198,10 +181,6 @@ export default function ChatInterface({
                       message.output
                     );
                   setStreamedResponse(fullResponse);
-                  console.log(
-                    "Tool ended, updated fullResponse:",
-                    fullResponse
-                  );
                 }
                 setCurrentTool(null);
               }
@@ -209,7 +188,6 @@ export default function ChatInterface({
 
             case StreamMessageType.Error:
               if ("error" in message) {
-                console.error("Stream error:", message.error);
                 throw new Error(message.error);
               }
               break;
@@ -222,7 +200,6 @@ export default function ChatInterface({
                 role: "assistant",
                 createdAt: Date.now(),
               } as Doc<"messages">;
-              console.log("Stream done, assistant message:", assistantMessage);
 
               const convex = getConvexClient();
               await convex.mutation(api.messages.store, {
@@ -230,17 +207,14 @@ export default function ChatInterface({
                 content: fullResponse,
                 role: "assistant",
               });
-              console.log("Message saved to database");
 
               setMessages((prev) => [...prev, assistantMessage]);
               setStreamedResponse("");
-              console.log("Assistant message added to state");
               return;
           }
         }
       });
     } catch (error) {
-      console.error("Error during handleSubmit:", error);
       setMessages((prev) =>
         prev.filter((msg) => msg._id !== optimisticUserMessage._id)
       );
@@ -253,49 +227,92 @@ export default function ChatInterface({
       );
     } finally {
       setIsLoading(false);
-      console.log("handleSubmit finished");
     }
   };
 
   return (
-    <main className="flex flex-col h-[calc(100vh-theme(spacing.14))]">
-      {/* Messages container */}
-      <section className="flex-1 overflow-y-auto bg-gray-50 p-2 md:p-0">
-        <div className="max-w-4xl mx-auto p-4 space-y-3">
-          {messages?.length === 0 && <WelcomeMessage />}
+    <main className="flex flex-col h-[calc(100vh-theme(spacing.14))] bg-gradient-to-b from-gray-50 to-white">
+      <section className="flex-1 overflow-y-auto p-2 md:p-0 scroll-smooth">
+        <div className="max-w-4xl mx-auto p-4 space-y-4">
+          {/* <AnimatePresence mode="popLayout"> */}
+          {messages?.length === 0 && (
+            <motion.div
+              key="welcome-message"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onAnimationComplete={scrollToBottom}
+            >
+              <WelcomeMessage />
+            </motion.div>
+          )}
 
-          {messages?.map((message: Doc<"messages">) => (
-            <MessageBubble
+          {messages?.map((message) => (
+            <motion.div
               key={message._id}
-              content={message.content}
-              isUser={message.role === "user"}
-            />
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              onAnimationComplete={scrollToBottom}
+            >
+              <MessageBubble
+                content={message.content}
+                isUser={message.role === "user"}
+              />
+            </motion.div>
           ))}
 
-          {streamedResponse && <MessageBubble content={streamedResponse} />}
+          {streamedResponse && (
+            <motion.div
+              key="streamed-response"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              onAnimationComplete={scrollToBottom}
+            >
+              <MessageBubble content={streamedResponse} />
+            </motion.div>
+          )}
 
-          {/* Loading indicator */}
           {isLoading && !streamedResponse && (
-            <div className="flex justify-start animate-in fade-in-0">
-              <div className="rounded-2xl px-4 py-3 bg-white text-gray-900 rounded-bl-none shadow-sm ring-1 ring-inset ring-gray-200">
+            <motion.div
+              key="loading-indicator"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1 }}
+              className="flex justify-start"
+              onAnimationComplete={scrollToBottom}
+            >
+              <div className="rounded-2xl px-4 py-3 bg-white text-gray-900 rounded-bl-none shadow-sm ring-1 ring-inset ring-gray-100">
                 <div className="flex items-center gap-1.5">
-                  {[0.3, 0.15, 0].map((delay, i) => (
-                    <div
-                      key={i}
-                      className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-bounce"
-                      style={{ animationDelay: `-${delay}s` }}
+                  {[0, 1, 2].map((i) => (
+                    <motion.div
+                      key={`loading-dot-${i}`}
+                      className="h-2 w-2 rounded-full bg-indigo-400"
+                      animate={{
+                        y: ["0%", "-50%", "0%"],
+                      }}
+                      transition={{
+                        duration: 0.8,
+                        repeat: Infinity,
+                        delay: i * 0.15,
+                      }}
                     />
                   ))}
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
-          <div ref={messagesEndRef} />
+
+          <div ref={messagesEndRef} className="h-1" />
+          {/* </AnimatePresence> */}
         </div>
       </section>
 
-      {/* Input form */}
-      <footer className="border-t bg-white p-4">
+      <motion.footer
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        className="border-t border-purple-100/20 bg-white/80 backdrop-blur-lg p-4 sticky bottom-0"
+      >
         <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative">
           <div className="relative flex items-center">
             <input
@@ -303,7 +320,7 @@ export default function ChatInterface({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Message AI Agent..."
-              className="flex-1 py-3 px-4 rounded-2xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12 bg-gray-50 placeholder:text-gray-500"
+              className="flex-1 py-3 px-4 rounded-2xl border border-purple-100/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-12 bg-white/50 backdrop-blur placeholder:text-gray-400"
               disabled={isLoading}
             />
             <Button
@@ -311,15 +328,17 @@ export default function ChatInterface({
               disabled={isLoading || !input.trim()}
               className={`absolute right-1.5 rounded-xl h-9 w-9 p-0 flex items-center justify-center transition-all ${
                 input.trim()
-                  ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                  ? "bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-md hover:shadow-lg"
                   : "bg-gray-100 text-gray-400"
               }`}
             >
-              <ArrowRight />
+              <ArrowRight
+                className={input.trim() ? "animate-in slide-in-right" : ""}
+              />
             </Button>
           </div>
         </form>
-      </footer>
+      </motion.footer>
     </main>
   );
 }

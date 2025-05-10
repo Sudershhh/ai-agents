@@ -8,16 +8,15 @@ import Sidebar from "@/components/Sidebar";
 function Dashboardlayout({ children }: { children: React.ReactNode }) {
   return (
     <NavigationProvider>
-      <div className="flex h-screen">
-        <Authenticated>
+      <Authenticated>
+        <div className="flex h-screen">
           <Sidebar />
-        </Authenticated>
-
-        <div className="flex-1 flex flex-col min-w-0">
-          <Header />
-          <main className="flex-1 overflow-y-auto">{children}</main>
+          <div className="flex-1 flex flex-col min-w-0">
+            <Header />
+            <main className="flex-1 overflow-y-auto">{children}</main>
+          </div>
         </div>
-      </div>
+      </Authenticated>
     </NavigationProvider>
   );
 }
