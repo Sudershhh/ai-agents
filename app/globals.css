@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import url("./alpino.css");
 
 @custom-variant dark (&:is(.dark *));
 
@@ -127,4 +128,8 @@
   .animation-delay-4000 {
     animation-delay: 4s;
   }
+}
+
+* {
+  font-family: "Alpino-Regular";
 }

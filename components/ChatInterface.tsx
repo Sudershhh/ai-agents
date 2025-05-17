@@ -10,7 +10,7 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { ArrowRight } from "lucide-react";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 interface ChatInterfaceProps {
   chatId: Id<"chats">;
@@ -30,6 +30,37 @@ export default function ChatInterface({
     input: unknown;
   } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [hasProcessedInitialQuery, setHasProcessedInitialQuery] =
+    useState(false);
+
+  // Handle initial query if present
+  useEffect(() => {
+    if (!hasProcessedInitialQuery && messages.length === 0) {
+      const initialQuery = sessionStorage.getItem(`initialQuery_${chatId}`);
+      if (initialQuery) {
+        setInput(initialQuery);
+        // Add optimistic message for initial query
+        const optimisticUserMessage: Doc<"messages"> = {
+          _id: `temp_${Date.now()}`,
+          chatId,
+          content: initialQuery,
+          role: "user",
+          createdAt: Date.now(),
+        } as Doc<"messages">;
+
+        setMessages((prev) => [...prev, optimisticUserMessage]);
+
+        // Create a synthetic form event
+        const formEvent = {
+          preventDefault: () => {},
+        } as React.FormEvent<HTMLFormElement>;
+        handleSubmit(formEvent, initialQuery);
+        // Remove the initial query from sessionStorage
+        sessionStorage.removeItem(`initialQuery_${chatId}`);
+        setHasProcessedInitialQuery(true);
+      }
+    }
+  }, [chatId, messages.length, hasProcessedInitialQuery]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -89,10 +120,13 @@ export default function ChatInterface({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (
+    e: React.FormEvent,
+    initialQueryValue?: string
+  ) => {
     e.preventDefault();
-    const trimmedInput = input.trim();
-    if (!trimmedInput || isLoading) {
+    const queryToProcess = initialQueryValue || input.trim();
+    if (!queryToProcess || isLoading) {
       return;
     }
 
@@ -101,15 +135,19 @@ export default function ChatInterface({
     setCurrentTool(null);
     setIsLoading(true);
 
-    const optimisticUserMessage: Doc<"messages"> = {
-      _id: `temp_${Date.now()}`,
-      chatId,
-      content: trimmedInput,
-      role: "user",
-      createdAt: Date.now(),
-    } as Doc<"messages">;
+    // Only add optimistic message if it's not the initial query
+    // (since we already added it in the useEffect)
+    if (!initialQueryValue) {
+      const optimisticUserMessage: Doc<"messages"> = {
+        _id: `temp_${Date.now()}`,
+        chatId,
+        content: queryToProcess,
+        role: "user",
+        createdAt: Date.now(),
+      } as Doc<"messages">;
 
-    setMessages((prev) => [...prev, optimisticUserMessage]);
+      setMessages((prev) => [...prev, optimisticUserMessage]);
+    }
 
     let fullResponse = "";
 
@@ -119,7 +157,7 @@ export default function ChatInterface({
           role: msg.role,
           content: msg.content,
         })),
-        newMessage: trimmedInput,
+        newMessage: queryToProcess,
         chatId,
       };
 
@@ -208,16 +246,29 @@ export default function ChatInterface({
                 role: "assistant",
               });
 
-              setMessages((prev) => [...prev, assistantMessage]);
+              // If this was the initial query, replace the optimistic message
+              if (initialQueryValue) {
+                setMessages((prev) => {
+                  const filtered = prev.filter(
+                    (msg) => msg._id !== `temp_${Date.now()}`
+                  );
+                  return [...filtered, assistantMessage];
+                });
+              } else {
+                setMessages((prev) => [...prev, assistantMessage]);
+              }
+
               setStreamedResponse("");
               return;
           }
         }
       });
     } catch (error) {
-      setMessages((prev) =>
-        prev.filter((msg) => msg._id !== optimisticUserMessage._id)
-      );
+      if (!initialQueryValue) {
+        setMessages((prev) =>
+          prev.filter((msg) => msg._id !== `temp_${Date.now()}`)
+        );
+      }
       setStreamedResponse(
         formatTerminalOutput(
           "error",
@@ -313,14 +364,17 @@ export default function ChatInterface({
         transition={{ delay: 0.2 }}
         className="border-t border-purple-100/20 bg-white/80 backdrop-blur-lg p-4 sticky bottom-0"
       >
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative">
+        <form
+          onSubmit={(e) => handleSubmit(e)}
+          className="max-w-4xl mx-auto relative"
+        >
           <div className="relative flex items-center">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Message AI Agent..."
-              className="flex-1 py-3 px-4 rounded-2xl border border-purple-100/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-12 bg-white/50 backdrop-blur placeholder:text-gray-400"
+              placeholder="Ask AI Agent..."
+              className="flex-1 py-3 px-4 rounded-2xl border-2 border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-12 bg-white/50 backdrop-blur placeholder:text-gray-400"
               disabled={isLoading}
             />
             <Button
