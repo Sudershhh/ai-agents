@@ -103,8 +103,8 @@ export default function WelcomeMessage() {
           </motion.h2>
 
           <motion.p variants={item} className="text-gray-600 text-center mb-8">
-            I'm your AI assistant, ready to help you with various tasks using
-            powerful tools and capabilities.
+            I&apos;m your AI assistant, ready to help you with various tasks
+            using powerful tools and capabilities.
           </motion.p>
 
           <motion.div

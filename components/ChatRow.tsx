@@ -5,7 +5,7 @@ import { Doc, Id } from "@/convex/_generated/dataModel";
 import { useRouter } from "next/navigation";
 import { NavigationContext } from "@/lib/NavigationProvider";
 import { Button } from "./ui/button";
-import { TrashIcon, MessageSquare, Loader2, Columns2 } from "lucide-react";
+import { TrashIcon, MessageSquare, Loader2 } from "lucide-react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import TimeAgo from "react-timeago";
