@@ -2,7 +2,7 @@
 
 An AI agent platform that combines multiple tools and services into a single, intuitive interface. Built with modern web technologies and designed for seamless user experience.
 
-## 🌟 Features
+## Features
 
 - **YouTube Analysis**: Extract and analyze video transcripts with AI processing
 - **Google Books Integration**: Search and analyze content from millions of books
@@ -11,7 +11,7 @@ An AI agent platform that combines multiple tools and services into a single, in
 - **Real-time Chat Interface**: Seamless interaction with AI agents
 - **Modern UI/UX**: Beautiful, responsive design with smooth animations
 
-## 🚀 Tech Stack
+## Tech Stack
 
 - **Frontend**: Next.js 15, React 19, Tailwind CSS, Framer Motion
 - **Backend**: Convex (Real-time Database)
@@ -20,14 +20,14 @@ An AI agent platform that combines multiple tools and services into a single, in
 - **Styling**: Tailwind CSS, Radix UI
 - **Development**: TypeScript, ESLint
 
-## 🛠️ Getting Started
+## Getting Started
 
 1. **Clone the repository**:
 
-   ```bash
-   git clone [repository-url]
+```bash
+git clone [repository-url]
 
-   ```
+```
 
 2. Install dependencies:
 
@@ -54,7 +54,7 @@ npm run dev
 
 5. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-## 📦 Project Structure
+## Project Structure
 
 ai-agents/
 ├── app/ # Next.js app directory
@@ -64,14 +64,14 @@ ai-agents/
 ├── public/ # Static assets
 └── constants/ # Application constants
 
-## 🔧 Development
+## Development
 
 - `npm run dev` - Start development server
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -79,7 +79,7 @@ ai-agents/
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Next.js](https://nextjs.org)
 - [Convex](https://www.convex.dev)
